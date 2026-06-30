@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>sentry_navigation</name>
+  <version>0.1.0</version>
+  <description>RM27 Sentry Navigation Package - Nav2 config, AMCL, maps, and launch</description>
+  <maintainer email="sentry@rm27.com">sentry</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
+
+  <depend>rclpy</depend>
+  <depend>nav2_bringup</depend>
+  <depend>nav2_map_server</depend>
+  <depend>nav2_amcl</depend>
+  <depend>nav2_planner</depend>
+  <depend>nav2_controller</depend>
+  <depend>nav2_behaviors</depend>
+  <depend>nav2_bt_navigator</depend>
+  <depend>nav2_costmap_2d</depend>
+  <depend>nav2_velocity_smoother</depend>
+  <depend>nav2_lifecycle_manager</depend>
+  <depend>nav_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>gazebo_msgs</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
