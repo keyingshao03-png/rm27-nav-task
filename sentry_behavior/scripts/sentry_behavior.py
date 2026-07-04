@@ -38,10 +38,11 @@ class SentryBehavior(Node):
         # ---- 巡逻点 (蓝方) ----
         self.patrol_pts = [
             (-3.0, -5.0),    # 蓝方出生点
+            (-2.4, -4.0),    # 走廊1
+            (-1.8, -3.0),    # 走廊2
+            (-1.2, -2.0),    # 走廊3
+            (-0.6, -1.2),    # 走廊4
             (0.0, 0.0),      # 中央区域
-            (2.0, 3.0),      # 右上方
-            (-1.0, 4.0),     # 左上方
-            (1.0, -1.0),     # 右下
         ]
         self.patrol_idx = 0
 
@@ -64,13 +65,24 @@ class SentryBehavior(Node):
         self.ry = msg.pose.pose.position.y
 
     def scan_cb(self, msg):
-        n = len(msg.ranges)
-        if n > 200:
-            fn = int(n * 15 / 360)
-            self.front_dist = min(
-                min(msg.ranges[0:fn] if msg.ranges[0:fn] else [99.0]),
-                min(msg.ranges[-fn:] if msg.ranges[-fn:] else [99.0])
-            )
+        """按角度扇形取值，和 simple_nav 一致"""
+        def sector_min(center_angle, half_width):
+            vals = []
+            for i, r in enumerate(msg.ranges):
+                if not math.isfinite(r):
+                    continue
+                if r < msg.range_min or r > msg.range_max:
+                    continue
+                angle = msg.angle_min + i * msg.angle_increment
+                diff = math.atan2(
+                    math.sin(angle - center_angle),
+                    math.cos(angle - center_angle)
+                )
+                if abs(diff) <= half_width:
+                    vals.append(r)
+            return min(vals) if vals else 99.0
+
+        self.front_dist = sector_min(0.0, math.radians(30))
 
     def cmd_cb(self, msg):
         """接收手动命令 (用于调试和裁判信号模拟)"""

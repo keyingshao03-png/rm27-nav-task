@@ -32,7 +32,48 @@ sentry_ws/src/
     ├── launch/
     │   └── sentry_competition.launch.py
     └── scripts/
-        └── sentry_behavior.py       # 状态机决策
+        ├── sentry_behavior_nav2.py  # Nav2 正式状态机
+        └── sentry_behavior.py       # simple_nav 降级状态机
+```
+
+### 实际文件清单
+
+```
+RM27_提交/
+├── sentry_navigation/                # 导航功能包
+│   ├── CMakeLists.txt
+│   ├── package.xml
+│   ├── config/nav2_params.yaml       # Nav2+AMCL+costmap 全参数
+│   ├── launch/
+│   │   ├── localization.launch.py    # map_server + AMCL
+│   │   ├── nav_bringup.launch.py     # Nav2 导航栈
+│   │   ├── sentry_auto.launch.py     # 一键启动
+│   │   └── slam_bringup.launch.py    # slam_toolbox 建图
+│   ├── maps/
+│   │   ├── map.pgm                   # 2D 栅格地图 (161×241)
+│   │   └── map.yaml                  # 地图元数据
+│   └── scripts/
+│       ├── simple_nav.py             # 自研导航器 (降级方案)
+│       ├── moving_obstacle.py        # 动态障碍物
+│       ├── odom_tf_publisher.py      # TF 发布
+│       ├── save_map.py               # 地图保存
+│       └── check_nav2_status.sh      # 诊断脚本
+├── sentry_behavior/                  # 决策功能包
+│   ├── CMakeLists.txt
+│   ├── package.xml
+│   ├── launch/sentry_competition.launch.py
+│   └── scripts/
+│       ├── sentry_behavior_nav2.py   # Nav2 正式状态机
+│       └── sentry_behavior.py        # 降级状态机
+├── scripts/
+│   ├── run_demo.sh                   # Nav2 一键启动
+│   ├── demo_auto.sh                  # 自动演示
+│   └── start_sentry.sh               # 仿真启动
+├── media/
+│   └── 演示视频
+├── docs/
+│   ├── README.md
+│   └── 导航组考核报告.pdf
 ```
 
 ## 3. 安装
@@ -45,9 +86,7 @@ sudo apt install -y ros-humble-nav2-bringup ros-humble-slam-toolbox
 cp -r sentry_navigation ~/Navigation-Recruitment-Task-1/sentry_ws/src/
 cp -r sentry_behavior ~/Navigation-Recruitment-Task-1/sentry_ws/src/
 
-# 复制地图到 home
-cp sentry_navigation/maps/map.yaml ~/
-cp sentry_navigation/maps/map.pgm ~/
+# 地图已安装在功能包内，默认会使用 sentry_navigation/maps/map.yaml
 
 # 编译
 cd ~/Navigation-Recruitment-Task-1/sentry_ws
@@ -105,7 +144,7 @@ bash start_sentry.sh
 
 ## 5. 两大导航方案
 
-### 方案A: Nav2 完整栈 (已完成配置，作为优先尝试路线)
+### 方案A: Nav2 完整栈（正式演示路线）
 
 ```
 map_server → AMCL → global_costmap → planner_server
@@ -115,9 +154,9 @@ local_costmap ← /scan → controller_server → /cmd_vel
 
 **优点**: 全局规划 + 局部避障 + 恢复行为 + 行为树
 **启动**: 用 `sentry_auto.launch.py`
-**当前状态**: 参数、launch、AMCL、planner/controller/costmap 均已配置；在 WSL + Gazebo 无头环境中，Nav2 lifecycle 和 AMCL 收敛稳定性不够理想，因此最终演示保留降级方案。
+**当前状态**: 正式演示链路采用 Nav2：`sentry_behavior_nav2.py → /navigate_to_pose → Nav2 → /cmd_vel`。`simple_nav.py` 仅作为降级备份，不在 `sentry_auto.launch.py` 中启动。
 
-### 方案B: 自研 simple_nav (最终演示降级方案)
+### 方案B: 自研 simple_nav（备份降级方案）
 
 ```
 AMCL(/amcl_pose) + /scan → simple_nav → /cmd_vel
@@ -138,11 +177,44 @@ INIT → PATROL → CHASE → RETREAT → AVOID → DONE
 | 状态 | 触发条件 | 行为 |
 |------|---------|------|
 | INIT | 系统启动 | 等待 start 命令 |
-| PATROL | 默认 | 循环走巡逻点 (5个) |
+| PATROL | 默认 | 循环走巡逻点 (6个) |
 | CHASE | enemy_detected | 冲向中央拦截 |
 | RETREAT | HP<25 或 time<30s | 返回出生点 |
-| AVOID | 前方障碍 <0.6m | simple_nav 自动绕行 |
+| AVOID | sentry_behavior_nav2: front_dist<0.35m | 状态展示；实际避障由 Nav2 local costmap + controller 完成 |
 | DONE | 时间到 | 停止并输出日志 |
+
+### 状态转移图
+
+```text
+                    ┌─────────────────────────┐
+                    │          INIT            │
+                    │  等待定位 & start 命令    │
+                    └────────────┬────────────┘
+                                 │ start
+                                 ▼
+                    ┌─────────────────────────┐
+              ┌────│         PATROL           │◄──────────────┐
+              │    │  循环走巡逻点 (6个)       │               │
+              │    └──┬──────────┬─────────┬──┘               │
+              │       │          │         │                  │
+              │  enemy│     front│    hp<25│                  │
+              │  _det  │     _dist│    or   │                  │
+              │       │      <0.3│  time<30│                  │
+              │       ▼          ▼         ▼                  │
+              │  ┌────────┐ ┌────────┐ ┌────────┐            │
+              │  │ CHASE  │ │ AVOID  │ │RETREAT │            │
+              │  │去中央   │ │等待畅通 │ │回出生点 │            │
+              │  │拦截敌方 │ │或超时跳 │ │安全区   │──► DONE   │
+              │  └───┬────┘ └───┬────┘ └───┬────┘  (时间到)  │
+              │      │          │          │                  │
+              │      │     front│    safe_zone                 │
+              │ enemy│     _dist│    _reached                 │
+              │ _lost│      >0.8│     → hp恢复                │
+              │      │          │          │                  │
+              └──────┴──────────┴──────────┘                  │
+                    (所有恢复路径回到 PATROL)                   │
+                    └──────────────────────────────────────────┘
+```
 
 ## 7. TF 链路
 
@@ -161,7 +233,8 @@ map ──(AMCL)──→ odom ──(odom_tf)──→ base_footprint
 | /scan | LaserScan | 2D 激光 (360°) |
 | /odom | Odometry | 里程计 |
 | /amcl_pose | PoseWithCovariance | AMCL 定位 |
-| /goal_point | PointStamped | 导航目标 |
+| /navigate_to_pose | nav2_msgs/action/NavigateToPose | Nav2 目标 action |
+| /goal_point | PointStamped | simple_nav 降级方案目标 |
 | /sentry_state | String | 当前状态 |
 | /sentry_command | String | 手动命令 (start/retreat/chase/hp_low/pause) |
 | /cmd_vel | Twist | 底盘控制 |
@@ -207,4 +280,6 @@ map ──(AMCL)──→ odom ──(odom_tf)──→ base_footprint
 | 最大线速度 | 0.5 m/s | controller_server |
 | AMCL 粒子数 | 500~2000 | amcl |
 | 到达容忍度 | 0.25 m | goal_checker / simple_nav |
-| 避障触发距离 | 0.5 m | simple_nav / sentry_behavior |
+| simple_nav 前方避障 | 0.85 m | simple_nav.py |
+| simple_nav 侧方避障 | 0.6 m | simple_nav.py |
+| sentry_behavior AVOID 触发 | 0.3 m | sentry_behavior.py |

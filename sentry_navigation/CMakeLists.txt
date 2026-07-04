@@ -18,6 +18,7 @@ install(PROGRAMS
   scripts/odom_tf_publisher.py
   scripts/moving_obstacle.py
   scripts/simple_nav.py
+  scripts/save_map.py
   scripts/check_nav2_status.sh
   DESTINATION lib/${PROJECT_NAME}
 )

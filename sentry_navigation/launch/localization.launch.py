@@ -5,17 +5,20 @@
 """
 import os
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, LogInfo, TimerAction
+from launch.actions import DeclareLaunchArgument, LogInfo
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from ament_index_python.packages import get_package_share_directory
 
 def generate_launch_description():
     # 地图文件路径
-    map_file = LaunchConfiguration('map_file', default=os.path.expanduser('~/map.yaml'))
+    map_file = LaunchConfiguration('map_file')
+
+    pkg_dir = os.path.dirname(os.path.dirname(__file__))
+    default_map = os.path.join(pkg_dir, 'maps', 'map.yaml')
 
     declare_map = DeclareLaunchArgument(
-        'map_file', default_value=map_file,
+        'map_file',
+        default_value=default_map,
         description='Full path to map.yaml'
     )
 

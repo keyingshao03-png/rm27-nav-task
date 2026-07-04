@@ -18,6 +18,6 @@ else:
     cv2.imwrite("map.pgm", img)
     yaml.dump({"image":"map.pgm","mode":"trinary","resolution":float(m.info.resolution),
      "origin":[float(m.info.origin.position.x),float(m.info.origin.position.y),0.0],
-     "negate":0,"occupied_thresh":0.65,"free_thresh":0.25}, open("map.yaml","w"))
+     "negate":0,"occupied_thresh":0.35,"free_thresh":0.25}, open("map.yaml","w"))
     print(f"SAVED {m.info.width}x{m.info.height} -> map.pgm + map.yaml")
 rclpy.shutdown()

@@ -39,35 +39,43 @@ class MovingObstacle(Node):
         self.set_state_cli = self.create_client(SetEntityState, '/set_entity_state')
         self.t = 0.0
         self.spawned = False
+        self.spawn_requested = False
 
-        # 先清理旧的
-        self.get_logger().info('Cleaning up old moving_box...')
-        while not self.delete_cli.wait_for_service(timeout_sec=2.0):
-            self.get_logger().info('Waiting for /delete_entity...')
-        try:
-            req = DeleteEntity.Request()
-            req.name = 'moving_box'
-            self.delete_cli.call(req)
-            self.get_logger().info('Old box deleted')
-        except:
-            pass
+        self.get_logger().info('Preparing moving_box obstacle...')
+        self.start_timer = self.create_timer(0.5, self.try_start)
 
-        # 生成新障碍物
+    def try_start(self):
+        if self.spawn_requested:
+            return
+        missing = []
+        if not self.spawn_cli.wait_for_service(timeout_sec=0.05):
+            missing.append('/spawn_entity')
+        if not self.delete_cli.wait_for_service(timeout_sec=0.05):
+            missing.append('/delete_entity')
+        if not self.set_state_cli.wait_for_service(timeout_sec=0.05):
+            missing.append('/set_entity_state')
+
+        if missing:
+            self.get_logger().info(f'Waiting for Gazebo services: {", ".join(missing)}')
+            return
+
+        self.spawn_requested = True
+        self.start_timer.cancel()
+
+        req = DeleteEntity.Request()
+        req.name = 'moving_box'
+        self.delete_cli.call_async(req)
+
+        self._spawn_requested = True
         self.spawn()
 
     def spawn(self):
-        while not self.spawn_cli.wait_for_service(timeout_sec=3.0):
-            self.get_logger().info('Waiting for /spawn_entity...')
-
         req = SpawnEntity.Request()
         req.name = 'moving_box'
         req.xml = SDF_BOX
-        req.initial_pose = Pose(position=Point(x=0.0, y=-2.0, z=0.5))
+        req.initial_pose = Pose(position=Point(x=-1.2, y=-2.2, z=0.5))
         future = self.spawn_cli.call_async(req)
         future.add_done_callback(self.spawn_done)
-
-        while not self.set_state_cli.wait_for_service(timeout_sec=3.0):
-            self.get_logger().info('Waiting for /set_entity_state...')
 
         # 定时直接更新 Gazebo 实体位姿，确保盒子真实运动。
         self.timer = self.create_timer(0.1, self.move)
@@ -96,21 +104,19 @@ class MovingObstacle(Node):
             return
 
         self.t += 0.1
-        radius = 1.2
-        omega = 0.35
-        cx, cy = 0.0, -2.0
-        yaw = self.t * omega + math.pi / 2.0
+        omega = 0.6
 
         state = EntityState()
         state.name = 'moving_box'
         state.reference_frame = 'world'
-        state.pose.position.x = cx + radius * math.cos(self.t * omega)
-        state.pose.position.y = cy + radius * math.sin(self.t * omega)
+        # 横穿巡逻路线 (-1.8,-3.0) -> (-1.2,-2.0)
+        state.pose.position.x = -1.4 + 0.8 * math.sin(self.t * omega)
+        state.pose.position.y = -2.4
+        yaw = 0.0
         state.pose.position.z = 0.5
         state.pose.orientation = self.yaw_to_quaternion(yaw)
         state.twist = Twist()
-        state.twist.linear.x = -radius * omega * math.sin(self.t * omega)
-        state.twist.linear.y = radius * omega * math.cos(self.t * omega)
+        state.twist.linear.x = -0.8 * omega * math.sin(self.t * omega)
         state.twist.angular.z = omega
 
         req = SetEntityState.Request()

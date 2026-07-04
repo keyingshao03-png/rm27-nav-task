@@ -40,8 +40,9 @@ class SimpleNav(Node):
         self.right_dist = 99.0
 
         # 控制参数
-        self.obstacle_threshold = 0.5   # 障碍距离阈值 (m)
-        self.goal_tolerance = 0.2        # 到达容忍度 (m)
+        self.obstacle_threshold = 0.85  # 前方避障距离 (m)
+        self.side_threshold = 0.6       # 侧方避障距离 (m)
+        self.goal_tolerance = 0.2       # 到达容忍度 (m)
         self.max_linear = 0.3            # 最大线速度
         self.max_angular = 0.8           # 最大角速度
         self.stuck_time = 0.0            # 卡住计时
@@ -65,19 +66,29 @@ class SimpleNav(Node):
             self.ryaw = math.atan2(2*(q.w*q.z + q.x*q.y), 1 - 2*(q.y*q.y + q.z*q.z))
 
     def scan_cb(self, msg):
-        self.ranges = msg.ranges
-        n = len(msg.ranges)
-        if n > 100:
-            # 前方 ±15° ≈ 前方 30° 扇形
-            front_n = int(n * 15 / 360)
-            self.front_dist = min(
-                min(msg.ranges[0:front_n] if msg.ranges[0:front_n] else [99.0]),
-                min(msg.ranges[-front_n:] if msg.ranges[-front_n:] else [99.0])
-            )
-            # 左方 60°~120°
-            self.left_dist = min(msg.ranges[n//6: n//3]) if n > 200 else 99.0
-            # 右方 240°~300°
-            self.right_dist = min(msg.ranges[2*n//3: 5*n//6]) if n > 200 else 99.0
+        """按角度扇形取值，不依赖数组下标"""
+        def sector_min(center_angle, half_width):
+            vals = []
+            for i, r in enumerate(msg.ranges):
+                if not math.isfinite(r):
+                    continue
+                if r < msg.range_min or r > msg.range_max:
+                    continue
+                angle = msg.angle_min + i * msg.angle_increment
+                diff = math.atan2(
+                    math.sin(angle - center_angle),
+                    math.cos(angle - center_angle)
+                )
+                if abs(diff) <= half_width:
+                    vals.append(r)
+            return min(vals) if vals else 99.0
+
+        # 正前方 ±30°
+        self.front_dist = sector_min(0.0, math.radians(30))
+        # 左侧 60°~120°，中心约 90°
+        self.left_dist = sector_min(math.radians(90), math.radians(30))
+        # 右侧 -120°~-60°，中心约 -90°
+        self.right_dist = sector_min(math.radians(-90), math.radians(30))
 
     def goal_cb(self, msg):
         self.gx = msg.point.x
@@ -88,7 +99,7 @@ class SimpleNav(Node):
 
     def control_loop(self):
         if self.gx is None:
-            self.cmd_pub.publish(Twist())  # 停止
+            # 没有目标时不发布 /cmd_vel，避免在 Nav2 模式下抢占速度控制。
             return
 
         dx = self.gx - self.rx
@@ -144,10 +155,15 @@ class SimpleNav(Node):
             twist.linear.x = 0.0
 
         else:
-            # 正常前进：速度与距离成正比（防止超调）
+            # 正常前进：速度与距离成正比 + 侧向远离墙
             speed = min(self.max_linear, dist_to_goal * 0.5)
-            twist.linear.x = max(0.05, speed)  # 不低于 0.05 m/s
-            twist.angular.z = yaw_err * 0.5
+            twist.linear.x = max(0.05, speed)
+            wall_correction = 0.0
+            if self.left_dist < self.side_threshold:
+                wall_correction -= 0.4   # 左边太近，往右偏
+            if self.right_dist < self.side_threshold:
+                wall_correction += 0.4   # 右边太近，往左偏
+            twist.angular.z = yaw_err * 0.6 + wall_correction
 
         self.cmd_pub.publish(twist)
 
